@@ -1,0 +1,148 @@
+---
+title: "Time Series Decomposition of Stream Data"
+author: "Julia Piaskowski"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+format: 
+  html: 
+    embed-resources: true
+---
+
+
+## Preparation
+
+Load libraries
+
+```{r include=FALSE, eval=TRUE}
+# standard libraries
+library(dplyr); library(tidyr); library(readr); library(ggplot2)
+
+# date & time / time series libraries
+library(lubridate)
+library(forecast)
+#library(fable) # ETS()
+```
+
+
+Import prepared data sets:  
+
+```{r}
+load(here::here("outputs", "time_series_imputed_obs.RData"))
+load(here::here("outputs", "prepped_stream_data.RData"))
+```
+
+
+## Time Series Decomposition
+
+##### STL: Seasonal Decomposition of Time Series by LOESS 
+
+### Alpowa Flow
+
+```{r}
+alpowa_flow_stl <- stl(alpowa_ts_flow_imp, 
+                      s.window = "periodic", 
+                     t.window = 500,  
+                      robust = TRUE)  
+
+autoplot(alpowa_flow_stl)  + #year 8 is when the cut-off begins
+  geom_vline(xintercept = 8, color = "red")+
+  labs(title = "Alpowa Flow")
+```
+
+
+Extract raw data with seasonality removed: 
+```{r}
+alpowa$alpowa_flow_stl <- seasadj(alpowa_flow_stl) 
+```
+
+Extract LOESS fits
+```{r}
+alpowa$alpowa_flow_stl_loess <- alpowa_flow_stl$time.series[,2]
+```
+
+**Plot results**
+
+- LOESS fits (light blue) and raw residuals (gray). The red line is for July 1, 2011, the black line indicates the water temperature on that day, and the dark blue line is the linear model for flow regressed on the date.
+
+```{r message=FALSE, warning=FALSE}
+ybar = alpowa |> filter(date_ == "2011-07-01") |> pull(alpowa_flow_stl_loess)
+  
+ggplot(alpowa, aes(x = date_, y = alpowa_flow_stl)) +
+  geom_line(color = "gray35", alpha = 0.3) +
+  geom_vline(xintercept = as.Date("2011-07-01"), col = "red2", linewidth = 0.75) + 
+  geom_hline(yintercept = ybar, col = "black", linewidth = 1) + 
+  geom_line(aes(y = alpowa_flow_stl_loess), color = "cornflowerblue", linewidth = 1.5, alpha = 0.6) +
+  geom_smooth(method = "lm", col = "blue", alpha = 0.6) + 
+  ylab("Water Flow (CFS)") +
+  ggtitle("Alpowa Creek", "STL w/LOESS") + 
+  theme_minimal(base_size = 12) +
+  scale_y_continuous(trans='log10') +
+  theme(axis.title.x = element_blank())
+```
+
+### Alpowa Temperature
+
+```{r}
+alpowa_temp_stl <- stl(alpowa_ts_temp_imp, 
+                      s.window = "periodic", 
+                     t.window = 500,  
+                      robust = TRUE)  
+
+autoplot(alpowa_temp_stl)  + #year 8 is when the cut-off begins
+  geom_vline(xintercept = 8, color = "red")+
+  ggtitle("LOESS seasonal adjustment", "Alpowa Temp")
+```
+
+Extract raw data with seasonality removed: 
+```{r}
+alpowa$alpowa_temp_stl <- seasadj(alpowa_temp_stl) 
+```
+
+Extract LOESS fits
+```{r}
+alpowa$alpowa_temp_stl_loess <- alpowa_temp_stl$time.series[,2]
+```
+
+**Plot results**
+
+- LOESS fits (light blue) and raw residuals (gray). The red line is for July 1, 2011, the black line indicates the water temperature on that day, and the dark blue line is the linear model for temperature regressed on the date.
+
+```{r message=FALSE, warning=FALSE}
+ybar = alpowa |> filter(date_ == "2011-07-01") |> pull(alpowa_temp_stl_loess)
+#ybar = mean(mydata$alpowa_temp_stl)
+  
+ggplot(alpowa, aes(x = date_, y = alpowa_temp_stl)) +
+  geom_line(color = "gray35", alpha = 0.3) +
+  geom_vline(xintercept = as.Date("2011-07-01"), col = "red2", linewidth = 0.75) + 
+  geom_hline(yintercept = ybar, col = "black", linewidth = 1) + 
+  geom_line(aes(y = alpowa_temp_stl_loess), color = "cornflowerblue", linewidth = 1.5, alpha = 0.6) +
+  geom_smooth(method = "lm", col = "blue", alpha = 0.6) + 
+  ylab("Water Temperature (°C)") +
+    ggtitle("Alpowa Creek") + 
+  theme_minimal(base_size = 12) +
+  theme(axis.title.x = element_blank())
+```
+
+
+### Mann-Kendall Test for a monotonic trend
+
+
+```{r}
+alpowa_half <- alpowa[seq(2, nrow(alpowa), 4),] # thin the data set 
+
+cor.test(alpowa_half$alpowa_temp_stl_loess, alpowa_half$index, method = "kendall")
+cor.test(alpowa_half$alpowa_flow_stl_loess, alpowa_half$index, method = "kendall")
+```
+
+
+### Linear Regression
+
+Reduce the data set so it is not 'overpowered' and run a linear regression. An overpowered data set has too many points and hence it is very sensitive to trend detection (too sensitive). 
+```{r}
+alpowa_sm <- alpowa[seq(20, nrow(alpowa), 20), ]
+
+summary(lm(alpowa_temp_stl_loess ~ index, data = alpowa_sm))
+summary(lm(alpowa_flow_stl_loess ~ index, data = alpowa_sm))
+```
+
+
+

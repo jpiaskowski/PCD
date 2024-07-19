@@ -1,0 +1,104 @@
+---
+title: "Miscellaneous Appproaches"
+author: "Julia Piaskowski"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+format: 
+  html: 
+    embed-resources: true
+---
+
+
+## Preparation
+
+Load libraries
+
+```{r include=FALSE, eval=TRUE}
+# standard libraries
+library(dplyr); library(tidyr); library(readr); library(ggplot2)
+
+# date & time / time series libraries
+library(lubridate)
+library(forecast)
+library(imputeTS)
+#library(fable) # ETS()
+```
+
+
+Import prepared data sets:  
+
+```{r}
+load(here::here("outputs", "prepped_stream_data.RData"))
+```
+
+## Other Ideas
+
+1. what happened if we forecast beyond 2011? (pretend time series ends there) - this doesn't make sense
+1. Lag work - why?
+1. look at July 1 - Sept 30 (?) as a 'low flow' period and see if the flow rate has changed (Julian days 182 - 273)
+
+### Alpowa flow
+
+```{r}
+alpowa_low <- alpowa |> filter(julian > 181 & julian < 274)
+
+alpowa_ts_temp <- ts(alpowa_low$water_temp_c, start = 1, frequency = 92) 
+alpowa_ts_flow <- ts(alpowa_low$flow_cfs, start = 1, frequency = 92) 
+
+alpowa_ts_temp_imp <- na_seadec(alpowa_ts_temp, algorithm = "interpolation")
+alpowa_ts_flow_imp <- na_seadec(alpowa_ts_flow, algorithm = "interpolation")
+```
+
+```{r}
+alpowa_flow_stl <- stl(alpowa_ts_flow_imp, 
+                      s.window = "periodic", 
+                     t.window = 100,  
+                      robust = TRUE)  
+
+autoplot(alpowa_flow_stl)  + #year 8 is when the cut-off begins
+  geom_vline(xintercept = 8, color = "red")+
+  labs(title = "Alpowa Flow")
+```
+
+### Alpowa temperature
+
+```{r}
+alpowa_temp_stl <- stl(alpowa_ts_temp_imp, 
+                      s.window = "periodic", 
+                     t.window = 100,  
+                      robust = TRUE)  
+
+autoplot(alpowa_temp_stl)  + #year 8 is when the cut-off begins
+  geom_vline(xintercept = 8, color = "red")+
+  labs(title = "Alpowa Flow")
+```
+
+### Mann-Kendall test
+
+```{r}
+alpowa_low$alpowa_temp_stl_loess <- alpowa_temp_stl$time.series[,2]
+alpowa_low$alpowa_flow_stl_loess <- alpowa_flow_stl$time.series[,2]
+
+cor.test(alpowa_low$alpowa_temp_stl_loess, alpowa_low$index, method = "kendall")
+cor.test(alpowa_low$alpowa_flow_stl_loess, alpowa_low$index, method = "kendall")
+```
+
+
+### Both Variables
+
+```{r}
+plot(alpowa_low$flow_cfs, alpowa_low$water_temp_c)
+cor(alpowa_low$flow_cfs, alpowa_low$water_temp_c, use = "pairwise.complete.obs")
+summary(lm(water_temp_c ~ flow_cfs, data = alpowa_low))
+```
+
+1. multiple variable forecasting (air temp + water flow on water temp). 
+
+
+
+
+
+
+
+
+
+

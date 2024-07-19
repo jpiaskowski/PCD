@@ -1,0 +1,226 @@
+---
+title: "Exploration of Stream Data"
+author: "Julia Piaskowski"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+format: 
+  html: 
+    embed-resources: true
+---
+
+
+## Prep: Libraries, Data
+
+```{r include=FALSE, eval=TRUE}
+# standard libraries
+library(dplyr); library(tidyr); library(readr); library(ggplot2)
+
+# date & time / time series libraries
+library(lubridate)
+```
+
+#### Data
+
+Import data set and create some helper variables:  
+
+```{r}
+streams <- read_csv(here::here("data/Alpowa_Deadman_Flow_Temp_2022.csv"), 
+                    show_col_types = FALSE) |> 
+  janitor::clean_names() |> 
+  rename(date_ = "date") |> # rename header to 'date_' since 'date()' is a function
+  mutate(missing = case_when(     # create new variable to indicate extent of missingness
+    is.na(water_temp_c) ~ "missing",
+    .default = NA_character_
+  )) |> 
+  mutate(year = year(date_), julian = as.numeric(format(date_, "%j"))) |> # new variables: Year, Julian days
+  mutate(Year = as.character(year)) |> 
+  mutate(improvement = case_when(    # add new variable for magic cut-off
+    date_ < "2011-07-01" ~ "before", 
+    date_ >= "2011-07-01" ~ "after"
+  )) |> 
+  dplyr::mutate(improvement = factor(improvement, levels = c("before", "after"))) |> 
+  #filter(date_ > "2003-06-30" & date_ < "2022-07-01") |> # filter to interval of interest
+  slice(-(grep("02-29$", date_))) 
+```
+
+Filter to individual streams:
+```{r}
+deadman <- filter(streams, site == "Deadman Creek") |> 
+  dplyr::arrange(date_) |> 
+  mutate(index = 1:n())
+
+alpowa <- filter(streams, site == "Alpowa Creek") |> 
+  dplyr::arrange(date_) |> 
+  mutate(index = 1:n())
+```
+
+Pivot to long format for plotting: 
+```{r}
+deadman_long <- deadman |> select(date_, julian, flow_cfs, water_temp_c) |> 
+  pivot_longer(cols = 3:4)
+
+alpowa_long <- alpowa |> select(date_, julian, flow_cfs, water_temp_c) |> 
+  pivot_longer(cols = 3:4)
+```
+
+
+## EDA (exploratory data analysis)
+
+### Alpowa Creek
+*(exploratory plots galore)*
+
+```{r fig.asp=1}
+hist(log(alpowa$flow_cfs))
+hist(alpowa$water_temp_c)
+plot(alpowa$flow_cfs, alpowa$water_temp_c)
+plot(log(alpowa$flow_cfs), alpowa$water_temp_c)
+```
+
+#### General time series
+```{r}
+ggplot(alpowa_long, aes(x = date_, y = value)) +
+  geom_line(color = "dodgerblue3") +
+  facet_grid(name ~ ., scales = "free_y") + 
+  theme_bw(base_size = 12) +
+  ggtitle("Alpowa Creek") + 
+  theme(axis.title.x = element_blank())
+
+#ggsave("outputs/Alpowa_temp.png", height = 975, width = 2625, units = "px")
+```
+
+#### Time series faceted by year
+```{r, fig.height=8, out.height=8}
+ggplot(alpowa, aes(x = julian, y = water_temp_c)) +
+  geom_line(aes(color = improvement), linewidth = 0.75) +
+  facet_grid(rows = vars(Year)) + 
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  guides(color = "none") + 
+  ylab("Water Temperature (°C)") +
+  xlab("Julian Calendar Days") + 
+  ggtitle("Alpowa Creek") + 
+  scale_y_continuous(breaks=c(0, 10, 20)) +
+  theme_minimal(base_size = 11) 
+
+#ggsave("outputs/Alpowa_temp_stacked.png", height = 2850, width = 2025, units = "px")
+```
+
+```{r, fig.height=8, out.height=8}
+ggplot(alpowa, aes(x = julian, y = flow_cfs)) +
+  geom_line(aes(color = improvement), linewidth = 0.75) +
+  facet_grid(rows = vars(Year), scales = "free_y") + 
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  guides(color = "none") + 
+  ylab("Flow rate (CFS)") +
+  xlab("Julian Calendar Days") + 
+  ggtitle("Alpowa Creek") + 
+  scale_y_continuous(breaks=c(0, 10, 20)) +
+  theme_minimal(base_size = 11) 
+
+#ggsave("outputs/Alpowa_temp_stacked.png", height = 2850, width = 2025, units = "px")
+```
+
+#### Time series overlaid
+```{r}
+ggplot(alpowa, aes(x = julian, y = water_temp_c, group = Year)) +
+  geom_line(aes(color = improvement), linewidth = 0.5, alpha = 0.6) +
+  guides(color = "none") + 
+  ylab("Water Temperature (°C)") +
+  xlab("Julian Calendar Days") + 
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  ggtitle("Alpowa Creek") + 
+  scale_y_continuous(breaks=c(0, 10, 20)) +
+  theme_linedraw(base_size = 11) 
+```
+
+```{r}
+ggplot(alpowa, aes(x = julian, y = flow_cfs, group = Year)) +
+  geom_line(aes(color = improvement), linewidth = 0.5, alpha = 0.6) +
+  guides(color = "none") + 
+  ylab("Water Flow (CFS)") +
+  xlab("Julian Calendar Days") + 
+  scale_y_continuous(trans='log10') +
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  ggtitle("Alpowa Creek", "log10 scale") + 
+  theme_linedraw(base_size = 11) 
+```
+
+
+### Deadman Creek
+*(exploratory plots galore)*
+
+```{r fig.asp=1}
+hist(log(deadman$flow_cfs))
+hist(deadman$water_temp_c)
+plot(deadman$flow_cfs, deadman$water_temp_c)
+plot(log(deadman$flow_cfs), deadman$water_temp_c)
+```
+
+#### General time series
+
+```{r}
+ggplot(deadman_long, aes(x = date_, y = value)) +
+  geom_line(color = "dodgerblue3") +
+  facet_grid(name ~ ., scales = "free_y") + 
+  theme_bw(base_size = 12) +
+  ggtitle("Deadman Creek") + 
+  theme(axis.title.x = element_blank())
+
+#ggsave("outputs/Alpowa_temp.png", height = 975, width = 2625, units = "px")
+```
+
+#### Time series faceted by year
+
+```{r, fig.height=8, out.height=8}
+ggplot(deadman, aes(x = julian, y = water_temp_c)) +
+  geom_line(aes(color = improvement), linewidth = 0.75) +
+  facet_grid(rows = vars(Year)) + 
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  guides(color = "none") + 
+  ylab("Water Temperature (°C)") +
+  xlab("Julian Calendar Days") + 
+  ggtitle("Deadman Creek", "Water Temp") + 
+  scale_y_continuous(breaks=c(0, 10, 20)) +
+  theme_minimal(base_size = 11) 
+
+#ggsave("outputs/Alpowa_temp_stacked.png", height = 2850, width = 2025, units = "px")
+```
+
+```{r, fig.height=8, out.height=8}
+ggplot(deadman, aes(x = julian, y = flow_cfs)) +
+  geom_line(aes(color = improvement), linewidth = 0.75) +
+  facet_grid(rows = vars(Year), scales = "free_y") + 
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  guides(color = "none") + 
+  ylab("Flow rate (CFS)") +
+  xlab("Julian Calendar Days") + 
+  ggtitle("Deadman Creek", "Flow Rate") + 
+  scale_y_continuous(breaks=c(0, 10, 20)) +
+  theme_minimal(base_size = 11) 
+
+#ggsave("outputs/Alpowa_temp_stacked.png", height = 2850, width = 2025, units = "px")
+```
+
+#### Time series overlaid
+
+```{r}
+ggplot(deadman, aes(x = julian, y = water_temp_c, group = Year)) +
+  geom_line(aes(color = improvement), linewidth = 0.5, alpha = 0.6, na.rm=TRUE) +
+  guides(color = "none") + 
+  ylab("Water Temperature (°C)") +
+  xlab("Julian Calendar Days") + 
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  ggtitle("Alpowa Creek") + 
+  scale_y_continuous(breaks=c(0, 10, 20)) +
+  theme_linedraw(base_size = 11) 
+```
+
+```{r}
+ggplot(deadman, aes(x = julian, y = flow_cfs, group = Year)) +
+  geom_line(aes(color = improvement), linewidth = 0.5, alpha = 0.6, na.rm=TRUE) +
+  guides(color = "none") + 
+  ylab("Water Flow (CFS)") +
+  xlab("Julian Calendar Days") + 
+  scale_y_continuous(trans='log10') +
+  scale_color_manual(values = c("dodgerblue2", "maroon")) +
+  ggtitle("Deadman Creek", "log10 scale") + 
+  theme_linedraw(base_size = 11) 
+```
